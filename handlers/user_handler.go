@@ -16,6 +16,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type WhereFunc func(*gorm.DB) *gorm.DB
+
+func QueryAndReturnError(c *fiber.Ctx, db *gorm.DB, user *models.User, whereFunc WhereFunc) error {
+	// Apply the custom search condition using the callback function
+	query := whereFunc(db)
+
+	if err := query.First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return gorm.ErrRecordNotFound
+		}
+
+		// Handle other database errors
+		return errors.New("500 - Internal server error")
+	}
+	return nil
+}
+
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
@@ -86,20 +103,13 @@ func LoginUser(c *fiber.Ctx) error {
 	//Try to find the user in the database
 	var user models.User
 	db := database.DB.Db
-	if err := db.Where("email = ?", loginRequest.Email).First(&user).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// User not found in the database
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"message": "User not found",
-				"error":   err,
-			})
-		}
-		// Other database error occurred
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Database error",
-			"error":   err,
-		})
+	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+		return db.Where("email = ?", loginRequest.Email)
+	})
+	if err != nil {
+		return nil
 	}
+
 	//Check the password hash in the database
 	if !CheckPasswordHash(loginRequest.Password, user.PasswordHash) {
 		// Password doesn't match
@@ -113,17 +123,58 @@ func LoginUser(c *fiber.Ctx) error {
 		"email": user.Email,
 		"exp":   time.Now().Add(time.Hour * 72).Unix(),
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	t, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
-	// Delete passwordhash
-	user.PasswordHash = ""
+
 	return c.JSON(models.Loginresponse{
 		Token: t,
-		User:  user,
 	})
 
+}
+
+func GetUserProfileByID(c *fiber.Ctx, id string) error {
+	var user models.User
+	db := database.DB.Db
+
+	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+		return db.Where("id = ?", id)
+	})
+
+	if err != nil {
+		return err
+	}
+	userProfile := models.UserProfile{
+		FirstName:  user.FirstName,
+		MiddleName: user.MiddleName,
+		LastName:   user.LastName,
+		Mobile:     user.Mobile,
+		Email:      user.Email,
+		Intro:      user.Intro,
+	}
+	return c.JSON(userProfile)
+}
+
+func UpdateUserProfileByID(c *fiber.Ctx, id string) error {
+	var user models.User
+	db := database.DB.Db
+
+	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+		return db.Where("id = ?", id)
+	})
+	if err != nil {
+		return err
+	}
+
+	// Create a pointer to the user struct
+	newUser := &user
+
+	// Parse the request body into newUser
+	if err := c.BodyParser(newUser); err != nil {
+		return err
+	}
+	db.Save(&newUser)
+	return c.JSON(newUser)
 }

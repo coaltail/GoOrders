@@ -31,13 +31,11 @@ func goDotEnvVariable(key string) string {
 }
 
 func ConnectDb() {
-	dotenv := goDotEnvVariable("DB_USER")
-	fmt.Println("Database user is: ", dotenv)
 	dsn := fmt.Sprintf(
 		"host=db user=%s password=%s dbname=%s port=5432 sslmode=disable TimeZone=Europe/Zagreb",
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_NAME"),
+		goDotEnvVariable("DB_USER"),
+		goDotEnvVariable("DB_PASSWORD"),
+		goDotEnvVariable("DB_NAME"),
 	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
@@ -50,7 +48,7 @@ func ConnectDb() {
 	log.Println("Connected!")
 
 	db.Logger = logger.Default.LogMode(logger.Info)
-	db.AutoMigrate(&models.User{})
+	models.AutoMigrate(db)
 
 	DB = Dbinstance{
 		Db: db,
