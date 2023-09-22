@@ -1,29 +1,21 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-
-	"github.com/go-chi/chi"
-	"github.com/go-chi/chi/middleware"
+	"github.com/coaltail/GoOrders/database"
+	"github.com/coaltail/GoOrders/routes"
+	"github.com/gofiber/fiber/v2"
+	jwtware "github.com/gofiber/contrib/jwt"
+	"os"
 )
 
 func main() {
-	router := chi.NewRouter()
-	router.Use(middleware.Logger)
+	database.ConnectDb()
+	app := fiber.New()
+	jwt_secret := os.Getenv("JWT_SECRET")
+    app.Use(jwtware.New(jwtware.Config{
+        SigningKey: jwtware.SigningKey{Key: []byte(jwt_secret)},
+    }))
 
-	router.Get("/hello", basicHandler)
-
-	server := &http.Server{
-		Addr:    ":3000",
-		Handler: router,
-	}
-	err := server.ListenAndServe()
-	if err != nil {
-		fmt.Println("Falied to listen to server", err)
-	}
-}
-
-func basicHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, World!"))
+	routes.SetupUserRoutes(app)
+	app.Listen(":3000")
 }
