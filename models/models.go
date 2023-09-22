@@ -5,12 +5,6 @@ import (
 	"gorm.io/gorm"
 )
 
-type Fact struct {
-	gorm.Model
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
-}
-
 type (
 	User struct {
 		gorm.Model
@@ -24,17 +18,12 @@ type (
 		RegisteredAt time.Time
 		LastLogin    time.Time
 		Intro        string
-		Profile      UserProfile
 	}
 )
-type UserProfile struct {
-	gorm.Model
 
-	UserID uint `gorm:"unique;not null"`
-	// Add other profile-related fields here
-}
+
 
 func AutoMigrate(db *gorm.DB) {
 	// AutoMigrate will create the necessary tables in the database
-	db.AutoMigrate(&User{}, &UserProfile{})
+	db.AutoMigrate(&User{})
 }

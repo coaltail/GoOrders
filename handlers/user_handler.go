@@ -1,16 +1,19 @@
 package handlers
 
 import (
-	"time"
+	"errors"
 	"os"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/coaltail/GoOrders/database"
 	"github.com/coaltail/GoOrders/models"
 	"github.com/coaltail/GoOrders/validation"
 
 	"github.com/gofiber/fiber/v2"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func HashPassword(password string) (string, error) {
@@ -33,11 +36,11 @@ func CreateUser(c *fiber.Ctx) error {
 	}
 
 	//Hash the password
-	password, err :=  HashPassword(user.PasswordHash)
+	password, err := HashPassword(user.PasswordHash)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to hash password",
-			"error": err,
+			"error":   err,
 		})
 	}
 	user.PasswordHash = password
@@ -46,7 +49,7 @@ func CreateUser(c *fiber.Ctx) error {
 	validationErrors := validator.Validate(user)
 	if len(validationErrors) > 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"errors":  validationErrors,
+			"errors": validationErrors,
 		})
 	}
 	db := database.DB.Db
@@ -54,36 +57,61 @@ func CreateUser(c *fiber.Ctx) error {
 	if result.Error != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to create user",
-			"error": result.Error,
+			"error":   result.Error,
 		})
 	}
 	return c.Status(fiber.StatusCreated).JSON(user)
 }
 
-
 func ListAllUsers(c *fiber.Ctx) error {
 	var users []models.User
 	db := database.DB.Db
-    if err := db.Find(&users).Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "error": "Failed to fetch users",
-        })
-    }
+	if err := db.Find(&users).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch users",
+		})
+	}
 
-    return c.JSON(users)
+	return c.JSON(users)
 }
 
 func LoginUser(c *fiber.Ctx) error {
-	pass := c.FormValue("email")
-	pass := c.FormValue("pass")
-
+	//Extract the login request
+	loginRequest := new(models.LoginRequest)
+	if err := c.BodyParser(loginRequest); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	//Try to find the user in the database
+	var user models.User
 	db := database.DB.Db
-	
-
+	if err := db.Where("email = ?", loginRequest.Email).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// User not found in the database
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "User not found",
+				"error":   err,
+			})
+		}
+		// Other database error occurred
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Database error",
+			"error":   err,
+		})
+	}
+	//Check the password hash in the database
+	if !CheckPasswordHash(loginRequest.Password, user.PasswordHash) {
+		// Password doesn't match
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid credentials",
+		})
+	}
+	//Make new token
 	claims := jwt.MapClaims{
-		"name": "John Doe",
-		"admin": true,
-		"exp": time.Now().Add(time.Hour * 72).Unix(),
+		"ID":    user.ID,
+		"email": user.Email,
+		"exp":   time.Now().Add(time.Hour * 72).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -91,8 +119,11 @@ func LoginUser(c *fiber.Ctx) error {
 	if err != nil {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
-	return c.JSON(fiber.Map{
-		"token": t,
+	// Delete passwordhash
+	user.PasswordHash = ""
+	return c.JSON(models.Loginresponse{
+		Token: t,
+		User:  user,
 	})
 
 }

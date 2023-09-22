@@ -34,7 +34,7 @@ func ConnectDb() {
 	dotenv := goDotEnvVariable("DB_USER")
 	fmt.Println("Database user is: ", dotenv)
 	dsn := fmt.Sprintf(
-		"host=db user=%s password=%s dbname=%s port=5432 sslmode=disable TimeZone=Asia/Shanghai",
+		"host=db user=%s password=%s dbname=%s port=5432 sslmode=disable TimeZone=Europe/Zagreb",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_NAME"),
@@ -50,7 +50,7 @@ func ConnectDb() {
 	log.Println("Connected!")
 
 	db.Logger = logger.Default.LogMode(logger.Info)
-	db.AutoMigrate(&models.User{}, &models.UserProfile{})
+	db.AutoMigrate(&models.User{})
 
 	DB = Dbinstance{
 		Db: db,
