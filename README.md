@@ -1,6 +1,6 @@
 # GoOrders
 
-Backend for a social media managing app. The backend is created entirely in GO, using Fiber and GORM as its main frameworks.
+GoOrders is a social media app, created using Go (Fiber) and the GORM framework. 
 
 
 ## How to run
