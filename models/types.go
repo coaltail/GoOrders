@@ -11,6 +11,7 @@ type Loginresponse struct {
 }
 
 type UserProfile struct {
+	ID         uint
 	FirstName  string `gorm:"not null" validate:"required,max=20"`
 	MiddleName string
 	LastName   string `gorm:"not null" validate:"required,max=20"`

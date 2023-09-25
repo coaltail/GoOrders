@@ -18,21 +18,25 @@ type User struct {
 	RegisteredAt time.Time
 	LastLogin    time.Time
 	Intro        string
+	Friends      []UserFriend   `gorm:"foreignKey:SourceID;references:ID"`
+	Followers    []UserFollower `gorm:"foreignKey:SourceID;references:ID"`
+	Messages     []Message      `gorm:"foreignKey:MessageSenderID;references:ID"`
+	Posts        []Post         `gorm:"foreignKey:UserID;references:ID"`
+	Groups       []Group        `gorm:"foreignKey:CreatedByID;references:ID"`
 }
 
-type UserFriends struct {
+type UserFriend struct {
 	gorm.Model
 
 	SourceID uint `gorm:"not null" gorm:"type:bigint;index"`
-	Source   User `gorm:"foreignKey:SourceID"`
+	Source   User `gorm:"foreignKey:SourceID;references:ID"`
 	TargetID uint `gorm:"not null" gorm:"type:bigint;index"`
-	Target   User `gorm:"foreignKey:TargetID"`
+	Target   User `gorm:"foreignKey:TargetID;references:ID"`
 	Type     int
 	Status   int
 	Notes    string
 }
-
-type UserFollowers struct {
+type UserFollower struct {
 	gorm.Model
 
 	SourceID uint `gorm:"not null" gorm:"type:bigint;index"`
@@ -110,5 +114,5 @@ type GroupMessage struct {
 
 func AutoMigrate(db *gorm.DB) {
 	// AutoMigrate will create the necessary tables in the database
-	db.AutoMigrate(&User{}, &Message{}, &UserFriends{}, &Message{}, &Post{}, &Group{}, &GroupMeta{}, &GroupMember{}, &GroupMessage{})
+	db.AutoMigrate(&User{}, &Message{}, &UserFriend{}, &Message{}, &Post{}, &Group{}, &GroupMeta{}, &GroupMember{}, &GroupMessage{})
 }

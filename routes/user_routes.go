@@ -9,13 +9,13 @@ import (
 )
 
 func SetupUserRoutes(app *fiber.App) {
-	jwt_secret := os.Getenv("JWT_SECRET")
-	jwt := middlewares.NewAuthMiddleware(jwt_secret)
+	protect_Route_secret := os.Getenv("JWT_SECRET")
+	protect_Route := middlewares.NewAuthMiddleware(protect_Route_secret)
 
 	userRoutes := app.Group("/users")
-	userRoutes.Post("/create", jwt, handlers.CreateUser)
+	userRoutes.Post("/create", handlers.CreateUser)
 	app.Post("/login", handlers.LoginUser)
-	userRoutes.Get("/", jwt, handlers.ListAllUsers)
+	userRoutes.Get("/", protect_Route, handlers.ListAllUsers)
 	userRoutes.Get("/:id", func(c *fiber.Ctx) error {
 		id := c.Params("id")
 		return handlers.GetUserProfileByID(c, id)
@@ -25,4 +25,10 @@ func SetupUserRoutes(app *fiber.App) {
 		id := c.Params("id")
 		return handlers.UpdateUserProfileByID(c, id)
 	})
+	userRoutes.Delete("/:id/delete", protect_Route, func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		return handlers.DeleteUserByID(c, id)
+	})
+	userRoutes.Get("/:id/followers", protect_Route, handlers.GetUserFollowers)
+
 }
