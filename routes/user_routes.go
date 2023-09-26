@@ -9,26 +9,18 @@ import (
 )
 
 func SetupUserRoutes(app *fiber.App) {
+	app.Post("/login", handlers.LoginUser)
+
 	protect_Route_secret := os.Getenv("JWT_SECRET")
 	protect_Route := middlewares.NewAuthMiddleware(protect_Route_secret)
-
 	userRoutes := app.Group("/users")
 	userRoutes.Post("/create", handlers.CreateUser)
-	app.Post("/login", handlers.LoginUser)
 	userRoutes.Get("/", protect_Route, handlers.ListAllUsers)
-	userRoutes.Get("/:id", func(c *fiber.Ctx) error {
-		id := c.Params("id")
-		return handlers.GetUserProfileByID(c, id)
-	})
-	userRoutes.Patch("/:id/update", func(c *fiber.Ctx) error {
-
-		id := c.Params("id")
-		return handlers.UpdateUserProfileByID(c, id)
-	})
-	userRoutes.Delete("/:id/delete", protect_Route, func(c *fiber.Ctx) error {
-		id := c.Params("id")
-		return handlers.DeleteUserByID(c, id)
-	})
-	userRoutes.Get("/:id/followers", protect_Route, handlers.GetUserFollowers)
+	userRoutes.Get("/:id", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.GetUserProfileByID)
+	userRoutes.Patch("/:id/update", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.UpdateUserProfileByID)
+	userRoutes.Delete("/:id/delete", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.DeleteUserByID)
+	userRoutes.Get("/:id/followers", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.GetUserFollowers)
+	userRoutes.Post("/:id/followers/:targetID", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.FollowUser)
+	userRoutes.Delete("/:id/:targetID/unfollow", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.UnfollowUser)
 
 }

@@ -23,25 +23,27 @@ type User struct {
 	Messages     []Message      `gorm:"foreignKey:MessageSenderID;references:ID"`
 	Posts        []Post         `gorm:"foreignKey:UserID;references:ID"`
 	Groups       []Group        `gorm:"foreignKey:CreatedByID;references:ID"`
+	Token        Token          `gorm:"foreignKey:UserID;references:ID"`
 }
 
 type UserFriend struct {
 	gorm.Model
 
-	SourceID uint `gorm:"not null" gorm:"type:bigint;index"`
+	SourceID uint `gorm:"not null;type:bigint;index"`
 	Source   User `gorm:"foreignKey:SourceID;references:ID"`
-	TargetID uint `gorm:"not null" gorm:"type:bigint;index"`
+	TargetID uint `gorm:"not null;type:bigint;index"`
 	Target   User `gorm:"foreignKey:TargetID;references:ID"`
 	Type     int
 	Status   int
 	Notes    string
 }
+
 type UserFollower struct {
 	gorm.Model
 
-	SourceID uint `gorm:"not null" gorm:"type:bigint;index"`
+	SourceID uint `gorm:"not null;type:bigint;uniqueIndex:idx_source_target"`
 	Source   User `gorm:"foreignKey:SourceID"`
-	TargetID uint `gorm:"not null" gorm:"type:bigint;index"`
+	TargetID uint `gorm:"not null;type:bigint;uniqueIndex:idx_source_target"`
 	Target   User `gorm:"foreignKey:TargetID"`
 	Type     int
 }
@@ -112,7 +114,16 @@ type GroupMessage struct {
 	Message string
 }
 
+type Token struct {
+	gorm.Model
+
+	UserID    uint
+	Token     string
+	ExpiresAt int64
+}
+
 func AutoMigrate(db *gorm.DB) {
 	// AutoMigrate will create the necessary tables in the database
-	db.AutoMigrate(&User{}, &Message{}, &UserFriend{}, &Message{}, &Post{}, &Group{}, &GroupMeta{}, &GroupMember{}, &GroupMessage{})
+	db.AutoMigrate(&User{}, &Message{}, &UserFriend{}, &UserFollower{}, &Message{}, &Post{}, &Group{}, &GroupMeta{}, &GroupMember{}, &GroupMessage{}, &Token{})
+
 }

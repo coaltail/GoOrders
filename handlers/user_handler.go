@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -18,35 +18,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Helper functions and interfaces
 var validator = validation.XValidator{}
-
-type WhereFunc func(*gorm.DB) *gorm.DB
-
-func QueryAndReturnError(c *fiber.Ctx, db *gorm.DB, model interface{}, whereFunc WhereFunc) error {
-	// Apply the custom search condition using the callback function
-
-	query := whereFunc(db)
-
-	if err := query.First(&model).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return gorm.ErrRecordNotFound
-		}
-
-		// Handle other database errors
-		return errors.New("500 - Internal server error")
-	}
-	return nil
-}
-
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
-	return string(bytes), err
-}
-
-func CheckPasswordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
-}
 
 func CreateUser(c *fiber.Ctx) error {
 	var user models.User
@@ -57,30 +30,24 @@ func CreateUser(c *fiber.Ctx) error {
 			"error":   err,
 		})
 	}
-	validationErrors := validator.Validate(user)
-	if len(validationErrors) > 0 {
+	validation_errors := validator.Validate(user)
+	if len(validation_errors) > 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"errors": validationErrors,
+			"errors": validation_errors,
 		})
 	}
 	//Hash the password
 	password, err := HashPassword(user.PasswordHash)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Failed to hash password",
-			"error":   err,
-		})
+		return handleError(c, fiber.StatusInternalServerError, "Failed to hash password", err)
 	}
 	user.PasswordHash = password
-
 	db := database.DB.Db
 	result := db.Create(&user)
 	if result.Error != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Failed to create user",
-			"error":   result.Error,
-		})
+		return handleError(c, fiber.StatusInternalServerError, "Failed to create user", result.Error)
 	}
+
 	return c.Status(fiber.StatusCreated).JSON(user)
 }
 
@@ -89,71 +56,86 @@ func ListAllUsers(c *fiber.Ctx) error {
 	var userProfiles []models.UserProfile
 	db := database.DB.Db
 	if err := db.Find(&users).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch users",
-		})
+		return handleError(c, fiber.StatusInternalServerError, "Could not find users", err)
 	}
-	fmt.Println(users)
 	copier.Copy(&userProfiles, &users)
-	return c.JSON(users)
+	return c.JSON(userProfiles)
 }
 
 func LoginUser(c *fiber.Ctx) error {
-	//Extract the login request
+	// Extract the login request
 	loginRequest := new(models.LoginRequest)
 	if err := c.BodyParser(loginRequest); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return handleError(c, fiber.StatusBadRequest, "Could not parse request", err)
 	}
-	//Try to find the user in the database
+
+	// Try to find the user in the database
 	var user models.User
 	db := database.DB.Db
-	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+	err := models.QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
 		return db.Where("email = ?", loginRequest.Email)
 	})
 	if err != nil {
-		return nil
+		return handleError(c, fiber.StatusInternalServerError, "Failed to log in user", err)
 	}
 
-	//Check the password hash in the database
+	// Check the password hash in the database
 	if !CheckPasswordHash(loginRequest.Password, user.PasswordHash) {
 		// Password doesn't match
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Invalid credentials",
-		})
+		return handleError(c, fiber.StatusUnauthorized, "Invalid credentials", err)
 	}
-	//Make new token
+
+	// Check if the user already has a token
+	var existingToken models.Token
+	tokenDB := db.Model(&user).Association("Token")
+	tokenDB.Find(&existingToken)
+
+	// Generate or update the token
+	tokenExpiry := time.Now().Add(time.Hour * 72).Unix()
 	claims := jwt.MapClaims{
 		"ID":    user.ID,
 		"email": user.Email,
-		"exp":   time.Now().Add(time.Hour * 72).Unix(),
+		"exp":   tokenExpiry,
 	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	t, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
-		return c.SendStatus(fiber.StatusInternalServerError)
+		return handleError(c, fiber.StatusInternalServerError, "Error signing token", err)
+	}
+
+	if existingToken.ID == 0 {
+		// User doesn't have a token, create a new one
+		newToken := models.Token{
+			UserID:    user.ID,
+			Token:     t,
+			ExpiresAt: tokenExpiry,
+		}
+		db.Create(&newToken)
+	} else {
+		// User already has a token, update it
+		existingToken.Token = t
+		existingToken.ExpiresAt = tokenExpiry
+		db.Save(&existingToken)
 	}
 
 	return c.JSON(models.Loginresponse{
-		Token: t,
+		Token:  t,
+		Claims: claims,
 	})
-
 }
 
-func GetUserProfileByID(c *fiber.Ctx, id string) error {
+func GetUserProfileByID(c *fiber.Ctx) error {
 	var user models.User
 	db := database.DB.Db
-
-	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+	id, _ := strconv.Atoi(c.Params("id"))
+	// If the user is authorized, proceed to fetch the user profile
+	err := models.QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
 	})
 
 	if err != nil {
-		errorMessage := "An error occurred: " + err.Error()
-		errorResponse := fiber.Map{"error": errorMessage}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(errorResponse)
+		return handleError(c, fiber.StatusInternalServerError, "Could not find user", err)
 	}
 
 	var userProfile models.UserProfile
@@ -161,28 +143,25 @@ func GetUserProfileByID(c *fiber.Ctx, id string) error {
 	return c.JSON(userProfile)
 }
 
-func UpdateUserProfileByID(c *fiber.Ctx, id string) error {
+func UpdateUserProfileByID(c *fiber.Ctx) error {
 	var user models.User
 	db := database.DB.Db
+	id, _ := strconv.Atoi(c.Params("id"))
 
-	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+	err := models.QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
 	})
 
 	if err != nil {
-
-		errorMessage := "An error occurred: " + err.Error()
-		errorResponse := fiber.Map{"error": errorMessage}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(errorResponse)
+		handleError(c, fiber.StatusInternalServerError, "Could not find user", err)
 	}
 
-	// Create a pointer to the user struct
+	// Copy contents of user to the new variable
 	newUser := &user
 
 	// Parse the request body into newUser
 	if err := c.BodyParser(newUser); err != nil {
-		return c.JSON(err)
+		return handleError(c, fiber.StatusBadRequest, "Invalid data", err)
 	}
 	db.Save(&newUser)
 	var userProfile models.UserProfile
@@ -190,26 +169,21 @@ func UpdateUserProfileByID(c *fiber.Ctx, id string) error {
 	return c.JSON(userProfile)
 }
 
-func DeleteUserByID(c *fiber.Ctx, id string) error {
+func DeleteUserByID(c *fiber.Ctx) error {
 	var user models.User
 	db := database.DB.Db
+	id, _ := strconv.Atoi(c.Params("id"))
 
-	err := QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
+	err := models.QueryAndReturnError(c, db, &user, func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
 	})
 
 	if err != nil {
-		errorMessage := "An error occurred: " + err.Error()
-		errorResponse := fiber.Map{"error": errorMessage}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(errorResponse)
+		return handleError(c, fiber.StatusInternalServerError, "Could not find user", err)
 	}
 
 	if err := db.Delete(&user).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Failed to delete user",
-			"errror":  err,
-		})
+		return handleError(c, fiber.StatusInternalServerError, "Error deleting user", err)
 	}
 
 	return c.JSON(fiber.Map{"detail": "success"})
@@ -217,23 +191,93 @@ func DeleteUserByID(c *fiber.Ctx, id string) error {
 
 func GetUserFollowers(c *fiber.Ctx) error {
 	db := database.DB.Db
-	fmt.Println("User ID: ", c.Params("id"))
-	// Now, retrieve the user's friends using the UserFriends model
 	var followers []models.UserFollower
-	err := QueryAndReturnError(c, db, &followers, func(db *gorm.DB) *gorm.DB {
-		return db.Where("target_id = ?", c.Params("id")).Find(&followers)
-	})
 
-	if err != nil {
-		errorMessage := "An error occurred: " + err.Error()
-		errorResponse := fiber.Map{"error": errorMessage}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(errorResponse)
+	// Query the database to find followers and preload the Source and Target users
+	if err := db.Where("source_id = ?", c.Params("id")).Preload("Source").Preload("Target").Find(&followers).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not retrieve followers", err)
 	}
 
 	return c.JSON(fiber.Map{
-		"message":   "Friends retrieved successfully",
 		"followers": followers,
 	})
+}
 
+func FollowUser(c *fiber.Ctx) error {
+	var sourceUser, targetUser models.User
+	db := database.DB.Db
+	var userFollower models.UserFollower
+	sourceID, _ := strconv.Atoi(c.Params("id"))
+	targetID, _ := strconv.Atoi(c.Params("targetID"))
+
+	err := db.First(&sourceUser, sourceID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return handleError(c, fiber.StatusNotFound, "Source user not found", err)
+	}
+
+	err = db.First(&targetUser, targetID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return handleError(c, fiber.StatusNotFound, "Source user not found", err)
+	}
+
+	userFollower = models.UserFollower{
+		SourceID: uint(sourceID),
+		Source:   sourceUser,
+		TargetID: uint(targetID),
+		Target:   targetUser,
+		Type:     0, //0 - basic type of follow, for now
+	}
+	if err := db.Create(&userFollower).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not create follower", err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"detail":   "Followed successfully",
+		"follower": userFollower,
+	})
+}
+
+func UnfollowUser(c *fiber.Ctx) error {
+	sourceID, _ := strconv.Atoi(c.Params("id"))
+	targetID, _ := strconv.Atoi(c.Params("targetID"))
+
+	db := database.DB.Db
+	var userFollower models.UserFollower
+
+	err := models.QueryAndReturnError(c, db, &userFollower, func(db *gorm.DB) *gorm.DB {
+		return db.Where("source_id = ?", sourceID).Where("target_id = ?", targetID)
+	})
+
+	if err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not find record.", err)
+	}
+
+	if err := db.Delete(&userFollower).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not delete record", err)
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"detail": "Record deleted succesfully.",
+	})
+}
+
+// The handleError function allows for customizable and quick error formatting.
+func handleError(c *fiber.Ctx, statusCode int, message string, err error) error {
+	if err != nil {
+		return c.Status(statusCode).JSON(fiber.Map{
+			"message": message,
+			"error":   err.Error(),
+		})
+	}
+	return c.Status(statusCode).JSON(fiber.Map{
+		"message": message,
+	})
+}
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
