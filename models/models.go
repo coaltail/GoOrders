@@ -29,9 +29,9 @@ type User struct {
 type UserFriend struct {
 	gorm.Model
 
-	SourceID uint `gorm:"not null;type:bigint;index"`
+	SourceID uint `gorm:"not null;type:bigint;index;uniqueIndex:idx_source_target_followers"`
 	Source   User `gorm:"foreignKey:SourceID;references:ID"`
-	TargetID uint `gorm:"not null;type:bigint;index"`
+	TargetID uint `gorm:"not null;type:bigint;index;uniqueIndex:idx_source_target_followers"`
 	Target   User `gorm:"foreignKey:TargetID;references:ID"`
 	Type     int
 	Status   int

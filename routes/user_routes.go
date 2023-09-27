@@ -19,8 +19,13 @@ func SetupUserRoutes(app *fiber.App) {
 	userRoutes.Get("/:id", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.GetUserProfileByID)
 	userRoutes.Patch("/:id/update", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.UpdateUserProfileByID)
 	userRoutes.Delete("/:id/delete", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.DeleteUserByID)
-	userRoutes.Get("/:id/followers", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.GetUserFollowers)
-	userRoutes.Post("/:id/followers/:targetID", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.FollowUser)
-	userRoutes.Delete("/:id/:targetID/unfollow", protect_Route, middlewares.CompareJWTandUserIDMiddleware(), handlers.UnfollowUser)
+
+	userRoutes.Get("/:id/followers", protect_Route, handlers.GetUserFollowers)
+	userRoutes.Post("/:id/followers/:targetID", protect_Route, handlers.FollowUser)
+	userRoutes.Delete("/:id/followers/:targetID", protect_Route, handlers.UnfollowUser)
+
+	userRoutes.Get("/:id/friends", protect_Route, handlers.GetUserFriends)
+	userRoutes.Post("/:id/friends/:targetID", protect_Route, handlers.CreateUserFriends)
+	userRoutes.Delete("/:id/friends/:targetID", protect_Route, handlers.DeleteUserFriends)
 
 }

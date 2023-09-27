@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -190,17 +191,35 @@ func DeleteUserByID(c *fiber.Ctx) error {
 }
 
 func GetUserFollowers(c *fiber.Ctx) error {
+	startTime := time.Now()
 	db := database.DB.Db
-	var followers []models.UserFollower
 
-	// Query the database to find followers and preload the Source and Target users
-	if err := db.Where("source_id = ?", c.Params("id")).Preload("Source").Preload("Target").Find(&followers).Error; err != nil {
+	var followers []models.UserFollower
+	var userProfile []models.UserProfile
+
+	// Query the database to find followers and preload the Target user's profile
+	if err := db.Preload("Target").Where("source_id = ?", c.Params("id")).Find(&followers).Error; err != nil {
 		return handleError(c, fiber.StatusInternalServerError, "Could not retrieve followers", err)
 	}
 
+	// Extract the UserProfile data from the followers
+	for _, follower := range followers {
+		userProfile = append(userProfile, models.UserProfile{
+			ID:         follower.Target.ID,
+			FirstName:  follower.Target.FirstName,
+			MiddleName: follower.Target.MiddleName,
+			LastName:   follower.Target.LastName,
+			Mobile:     follower.Target.Mobile,
+			Email:      follower.Target.Email,
+			Intro:      follower.Target.Intro,
+		})
+	}
+
+	fmt.Println("This operation took: ", time.Since(startTime))
 	return c.JSON(fiber.Map{
-		"followers": followers,
+		"followers": userProfile,
 	})
+
 }
 
 func FollowUser(c *fiber.Ctx) error {
@@ -209,7 +228,9 @@ func FollowUser(c *fiber.Ctx) error {
 	var userFollower models.UserFollower
 	sourceID, _ := strconv.Atoi(c.Params("id"))
 	targetID, _ := strconv.Atoi(c.Params("targetID"))
-
+	if sourceID == targetID {
+		return handleError(c, fiber.StatusBadRequest, "You cannot follow yourself.", fiber.ErrBadRequest)
+	}
 	err := db.First(&sourceUser, sourceID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return handleError(c, fiber.StatusNotFound, "Source user not found", err)
@@ -217,7 +238,7 @@ func FollowUser(c *fiber.Ctx) error {
 
 	err = db.First(&targetUser, targetID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return handleError(c, fiber.StatusNotFound, "Source user not found", err)
+		return handleError(c, fiber.StatusNotFound, "Target user not found", err)
 	}
 
 	userFollower = models.UserFollower{
@@ -251,7 +272,100 @@ func UnfollowUser(c *fiber.Ctx) error {
 		return handleError(c, fiber.StatusInternalServerError, "Could not find record.", err)
 	}
 
-	if err := db.Delete(&userFollower).Error; err != nil {
+	if err := db.Unscoped().Where("source_id = ?", sourceID).Where("target_id = ?", targetID).Delete(&userFollower).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not delete record", err)
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"detail": "Record deleted succesfully.",
+	})
+}
+
+func GetUserFriends(c *fiber.Ctx) error {
+	startTime := time.Now()
+	db := database.DB.Db
+
+	var friends []models.UserFriend
+	var userProfile []models.UserProfile
+
+	// Query the database to find followers and preload the Target user's profile
+	if err := db.Preload("Target").Where("source_id = ?", c.Params("id")).Find(&friends).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not retrieve followers", err)
+	}
+
+	// Extract the UserProfile data from the followers
+	for _, friend := range friends {
+		userProfile = append(userProfile, models.UserProfile{
+			ID:         friend.Target.ID,
+			FirstName:  friend.Target.FirstName,
+			MiddleName: friend.Target.MiddleName,
+			LastName:   friend.Target.LastName,
+			Mobile:     friend.Target.Mobile,
+			Email:      friend.Target.Email,
+			Intro:      friend.Target.Intro,
+		})
+	}
+
+	fmt.Println("This operation took: ", time.Since(startTime))
+	return c.JSON(fiber.Map{
+		"followers": userProfile,
+	})
+}
+
+func CreateUserFriends(c *fiber.Ctx) error {
+	var sourceUser, targetUser models.User
+	db := database.DB.Db
+	var userFollower models.UserFriend
+	sourceID, _ := strconv.Atoi(c.Params("id"))
+	targetID, _ := strconv.Atoi(c.Params("targetID"))
+	if sourceID == targetID {
+		return handleError(c, fiber.StatusBadRequest, "You cannot follow yourself.", fiber.ErrBadRequest)
+	}
+
+	err := db.First(&sourceUser, sourceID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return handleError(c, fiber.StatusNotFound, "Source user not found", err)
+	}
+
+	err = db.First(&targetUser, targetID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return handleError(c, fiber.StatusNotFound, "Target user not found", err)
+	}
+
+	userFollower = models.UserFriend{
+		SourceID: uint(sourceID),
+		Source:   sourceUser,
+		TargetID: uint(targetID),
+		Target:   targetUser,
+		Type:     0, //0 - basic type of friend, for now
+		Status:   0,
+		Notes:    "",
+	}
+	if err := db.Create(&userFollower).Error; err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not create follower", err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"detail":   "Friend created successfully",
+		"follower": userFollower,
+	})
+
+}
+
+func DeleteUserFriends(c *fiber.Ctx) error {
+	sourceID, _ := strconv.Atoi(c.Params("id"))
+	targetID, _ := strconv.Atoi(c.Params("targetID"))
+
+	db := database.DB.Db
+	var userFriend models.UserFriend
+
+	err := models.QueryAndReturnError(c, db, &userFriend, func(db *gorm.DB) *gorm.DB {
+		return db.Where("source_id = ?", sourceID).Where("target_id = ?", targetID)
+	})
+
+	if err != nil {
+		return handleError(c, fiber.StatusInternalServerError, "Could not find record.", err)
+	}
+
+	if err := db.Unscoped().Where("source_id = ?", sourceID).Where("target_id = ?", targetID).Delete(&userFriend).Error; err != nil {
 		return handleError(c, fiber.StatusInternalServerError, "Could not delete record", err)
 	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
