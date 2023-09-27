@@ -17,7 +17,7 @@ func main() {
 		})
 	})
 	routes.SetupUserRoutes(app)
-
+	routes.SetupMessageRoutes(app)
 	// Start your Fiber app
 	app.Listen(":3000")
 }

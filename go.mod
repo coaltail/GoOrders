@@ -11,6 +11,7 @@ require (
 	github.com/go-playground/validator/v10 v10.15.4 // indirect
 	github.com/gofiber/contrib/jwt v1.0.7 // indirect
 	github.com/gofiber/fiber/v2 v2.49.2 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.0.0 // indirect
 	github.com/google/uuid v1.3.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

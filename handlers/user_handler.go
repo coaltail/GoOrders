@@ -93,12 +93,11 @@ func LoginUser(c *fiber.Ctx) error {
 
 	// Generate or update the token
 	tokenExpiry := time.Now().Add(time.Hour * 72).Unix()
-	claims := jwt.MapClaims{
-		"ID":    user.ID,
-		"email": user.Email,
-		"exp":   tokenExpiry,
+	claims := &models.Claims{
+		ID:        user.ID,
+		ExpiresAt: tokenExpiry,
+		Email:     user.Email,
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	t, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {

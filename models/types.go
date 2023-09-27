@@ -26,6 +26,13 @@ type UserProfile struct {
 	Intro      string
 }
 
+type Claims struct {
+	jwt.RegisteredClaims //Jwt Standarclaims for v5?
+	ID                   uint
+	Email                string
+	ExpiresAt            int64
+}
+
 type QueryFunc func(*gorm.DB) *gorm.DB
 
 // Returns an error if it happens during querying.

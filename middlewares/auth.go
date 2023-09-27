@@ -6,9 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coaltail/GoOrders/models"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 )
 
 func NewAuthMiddleware(secret string) fiber.Handler {
@@ -38,11 +40,7 @@ func ParseAndCompare(userID int, c *fiber.Ctx) error {
 	if !valid {
 		return fiber.NewError(fiber.StatusInternalServerError, "Could not parse token")
 	}
-
-	userIDFromJWT, ok := claims["ID"].(float64)
-	if !ok {
-		return fiber.NewError(fiber.StatusUnauthorized, "Invalid JWT or ID")
-	}
+	userIDFromJWT := claims.ID
 
 	// Data types have to be matching, convert both source and jwt id to int
 	jwtUserID := int(userIDFromJWT)
@@ -54,12 +52,12 @@ func ParseAndCompare(userID int, c *fiber.Ctx) error {
 }
 
 // The ExtractClaims function takes in a JWT token string and extracts its claims. The claims included are: ID, user email and token expiry time.
-func ExtractClaims(tokenStr string) (jwt.MapClaims, bool) {
+func ExtractClaims(tokenStr string) (*models.Claims, bool) {
 	// Remove the "Bearer " prefix if it exists
 	tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
 
 	var hmacSecret = []byte(os.Getenv("JWT_SECRET"))
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &models.Claims{}, func(token *jwt.Token) (interface{}, error) {
 		// check token signing method etc
 		return hmacSecret, nil
 	})
@@ -68,10 +66,21 @@ func ExtractClaims(tokenStr string) (jwt.MapClaims, bool) {
 		return nil, false
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+	if claims, ok := token.Claims.(*models.Claims); ok && token.Valid {
 		return claims, true
 	} else {
 		log.Printf("Invalid JWT Token")
 		return nil, false
 	}
+}
+func GetUserFromClaims(claims models.Claims, db *gorm.DB) (*models.User, error) {
+	//Get claims
+	userID := claims.ID
+	var user models.User
+	//Get user from database
+	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	// No error, return user
+	return &user, nil
 }
