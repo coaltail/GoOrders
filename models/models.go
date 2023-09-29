@@ -56,6 +56,7 @@ type Message struct {
 	MessageRecipientID uint `gorm:"not null" gorm:"type:bigint;index"`
 	MessageRecipient   User `gorm:"foreignKey:MessageRecipientID"`
 	Message            string
+	
 }
 
 type Post struct {
